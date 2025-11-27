@@ -1,17 +1,46 @@
 import pygame
 import random
+import math
+
 from circleshape import CircleShape
 from constants import LINE_WIDTH, ASTEROID_MIN_RADIUS
 from logger import log_event
 
 class Asteroid(CircleShape):
-    def __init__(self, x, y, radius):
-        super().__init__(x, y, radius)
+    def __init__(self, x, y, radius, *args, **kwargs):
+        super().__init__(x, y, radius, *args, **kwargs)
+        self.points = self._generate_shape()
         self.radius = radius
 
+    def _generate_shape(self):
+        num_points = random.randint(8, 14)
+        angle_step = 360 / num_points
+        base_r = self.radius
+        max_perturb = base_r * 0.3
+
+        points = []
+        for i in range(num_points):
+            angle_deg = i * angle_step
+            angle_rad = math.radians(angle_deg)
+
+            if random.random() < 0.2:
+                r = base_r + random.uniform(max_perturb, max_perturb * 2.0)
+            else:
+                r = base_r - random.uniform(max_perturb, max_perturb *1.5)
+                r = max(base_r * 0.3, r)
+
+            x = math.cos(angle_rad) * r
+            y = math.sin(angle_rad) * r
+            points.append(pygame.math.Vector2(x, y))
+        return points
+
     def draw(self, screen):
-        pos = (int(self.position.x), int(self.position.y))
-        pygame.draw.circle(screen, "white", pos, int(self.radius), LINE_WIDTH)
+        # Transform local offsets into world coordinates
+        transformed_points = [
+            (self.position.x + p.x, self.position.y + p.y)
+            for p in self.points
+        ]
+        pygame.draw.polygon(screen, "white", transformed_points, width=1)
 
     def update(self, dt):
         self.position += (self.velocity * dt)
