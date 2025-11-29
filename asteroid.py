@@ -59,3 +59,6 @@ class Asteroid(CircleShape):
             new_asteroid_2 = Asteroid(self.position.x, self.position.y, new_radius)
             new_asteroid_1.velocity = new_velocity_1 * 1.2
             new_asteroid_2.velocity = new_velocity_2 * 1.2
+
+    def get_score_value(self):
+        return int(1200 / self.radius)
