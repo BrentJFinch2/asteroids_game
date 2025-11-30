@@ -23,7 +23,7 @@ class Player(CircleShape):
         return [a, b, c]
 
     def draw(self, screen):
-        if not self.visible:
+        if not self.alive or not self.visible:
             return
         pygame.draw.polygon(screen, "white", self.triangle(), LINE_WIDTH)
 
@@ -38,30 +38,37 @@ class Player(CircleShape):
 
     def update(self, dt):
         if not self.alive:
-            return
+            return None
+
         keys = pygame.key.get_pressed()
+        shot = None
 
         if keys[pygame.K_LEFT]:
-           self.rotate(-dt) # ?
+            self.rotate(-dt) # ?
         if keys[pygame.K_RIGHT]:
-           self.rotate(dt) # ?
+            self.rotate(dt) # ?
         if keys[pygame.K_UP]:
-           self.move(dt)
+            self.move(dt)
         if keys[pygame.K_DOWN]:
-           self.move(-dt)
+            self.move(-dt)
         if keys[pygame.K_SPACE]:
-           self.shoot()
+            shot = self.shoot()
+
         self.shot_cooldown_timer -= dt
         self.shot_cooldown_timer = max(0, self.shot_cooldown_timer)
+
         self.wrap_position()
+
+        return shot
 
     def shoot(self):
         if self.shot_cooldown_timer > 0:
-           return
-        else:
-           shot = Shot(self.position.x, self.position.y)
-           shot.velocity = pygame.Vector2(0, 1).rotate(self.rotation) * PLAYER_SHOOT_SPEED
-           self.shot_cooldown_timer = PLAYER_SHOOT_COOLDOWN_SECONDS
+            return None
+
+        shot = Shot(self.position.x, self.position.y)
+        shot.velocity = pygame.Vector2(0, 1).rotate(self.rotation) * PLAYER_SHOOT_SPEED
+        self.shot_cooldown_timer = PLAYER_SHOOT_COOLDOWN_SECONDS
+        return shot
 
     def reset_position(self, x, y):
         self.position.update(x, y)

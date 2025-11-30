@@ -1,0 +1,274 @@
+import pygame
+import constants
+import random
+import sys
+from player import Player
+from asteroid import Asteroid
+from shot import Shot
+from explosion import Explosion
+
+class Game:
+    def __init__(self):
+        pygame.init()
+        self.screen = pygame.display.set_mode(
+            (constants.SCREEN_WIDTH, constants.SCREEN_HEIGHT)
+        )
+
+        self.player = Player(
+            constants.SCREEN_WIDTH / 2,
+            constants.SCREEN_HEIGHT / 2
+        )
+        self.asteroids = []
+        self.shots = []
+        self.explosions = []
+
+        self.clock = pygame.time.Clock()
+        self.running = True
+
+        self.asteroid_spawn_timer = constants.ASTEROID_SPAWN_RATE_SECONDS
+
+        self.player_lives = 3
+        self.score = 0
+
+        self.game_over = False
+
+        self.player_alive = True
+        self.is_invincible = False
+        self.respawn_timer = 0.0
+        self.invincibility_timer = 0.0
+
+        pygame.font.init()
+        self.font = pygame.font.SysFont(None, 32)
+
+    def handle_input(self):
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                self.running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r and self.game_over:
+                    self.reset_game()
+
+    def update(self, dt):
+        if self.game_over:
+            for explosion in self.explosions:
+                explosion.update(dt)
+            self.explosions = [e for e in self.explosions if e.alive]
+            return
+
+        shot = self.player.update(dt)
+        if shot is not None:
+            self.shots.append(shot)
+
+        self.asteroid_spawn_timer -= dt
+        if self.asteroid_spawn_timer <= 0:
+            self.spawn_asteroid()
+            self.asteroid_spawn_timer = constants.ASTEROID_SPAWN_RATE_SECONDS
+
+        for asteroid in self.asteroids:
+            asteroid.update(dt)
+        for shot in self.shots:
+            shot.update(dt)
+        for explosion in self.explosions:
+            explosion.update(dt)
+
+        self.shots = [
+            shot for shot in self.shots
+            if 0 <= shot.position.x <= constants.SCREEN_WIDTH
+            and 0 <= shot.position.y <= constants.SCREEN_HEIGHT
+        ]
+
+        self.asteroids = [
+            asteroid for asteroid in self.asteroids
+            if 0 <= asteroid.position.x <= constants.SCREEN_WIDTH
+            and 0 <= asteroid.position.y <= constants.SCREEN_HEIGHT
+        ]
+
+        self.explosions = [e for e in self.explosions if e.alive]
+
+        # --- respawn handling ---
+        if not self.player_alive:
+            self.respawn_timer -= dt
+            if self.respawn_timer <= 0:
+            # reset player
+                self.player.reset_position(
+                    constants.SCREEN_WIDTH / 2,
+                    constants.SCREEN_HEIGHT / 2,
+                )
+                self.player_alive = True
+                self.player.alive = True
+
+                self.is_invincible = True
+                self.player.is_invincible = True
+                self.invincibility_timer = 2.0
+
+                self.player.visible = True
+                self.player.blink_timer = 0.0
+
+        # --- invincibility blink ---
+        if self.is_invincible:
+            self.invincibility_timer -= dt
+            self.player.blink_timer -= dt
+
+            if self.player.blink_timer <= 0:
+                self.player.visible = not self.player.visible
+                self.player.blink_timer = 0.1
+
+            if self.invincibility_timer <= 0:
+                self.is_invincible = False
+                self.player.is_invincible = False
+                self.player.visible = True
+        else:
+            self.player.visible = True
+
+        self.handle_shot_asteroid_collisions()
+        self.handle_player_asteroid_collisions()
+
+    def draw(self):
+        self.screen.fill("black")
+
+        self.player.draw(self.screen)
+        for asteroid in self.asteroids:
+            asteroid.draw(self.screen)
+        for shot in self.shots:
+            shot.draw(self.screen)
+        for explosion in self.explosions:
+            explosion.draw(self.screen)
+
+        # --- HUD ---
+        lives_surf = self.font.render(f"Lives: {self.player_lives}", True, "white")
+        score_surf = self.font.render(f"Score: {self.score}", True, "white")
+        self.screen.blit(lives_surf, (10, 10))
+        self.screen.blit(score_surf, (10, 40))
+
+        if self.game_over:
+            text_surf = self.font.render("GAME OVER - Press R to Restart", True, "red")
+            rect = text_surf.get_rect(center=(
+                constants.SCREEN_WIDTH // 2,
+                constants.SCREEN_HEIGHT // 2,
+            ))
+            self.screen.blit(text_surf, rect)
+
+        pygame.display.flip()
+
+    def run(self):
+        while self.running:
+            dt = self.clock.tick(60) / 1000.0
+            self.handle_input()
+            self.update(dt)
+            self.draw()
+
+    def spawn_asteroid(self):
+        side = random.randint(0, 3)
+
+        if side == 0:  # top
+            x = random.uniform(0, constants.SCREEN_WIDTH)
+            y = 0
+        elif side == 1:  # bottom
+            x = random.uniform(0, constants.SCREEN_WIDTH)
+            y = constants.SCREEN_HEIGHT
+        elif side == 2:  # left
+            x = 0
+            y = random.uniform(0, constants.SCREEN_HEIGHT)
+        else:  # right
+            x = constants.SCREEN_WIDTH
+            y = random.uniform(0, constants.SCREEN_HEIGHT)
+
+        radius = constants.ASTEROID_MAX_RADIUS
+        asteroid = Asteroid(x, y, radius)
+
+        center = pygame.Vector2(
+            constants.SCREEN_WIDTH /2,
+            constants.SCREEN_HEIGHT /2,
+        )
+        direction = (center - asteroid.position).normalize()
+        speed = random.uniform(50, 150)
+        asteroid.velocity = direction * speed
+
+        self.asteroids.append(asteroid)
+
+    def circles_collide(self, a, b):
+        distance_sq = (a.position - b.position).length_squared()
+        radius_sum = a.radius + b.radius
+        return distance_sq <= radius_sum * radius_sum
+
+    def handle_player_asteroid_collisions(self):
+        if not self.player_alive or not self.player.alive:
+            return
+
+        for asteroid in self.asteroids:
+            if self.circles_collide(self.player, asteroid):
+                if self.is_invincible or self.player.is_invincible:
+                    continue
+
+                self.explosions.append(
+                    Explosion(self.player.position.x, self.player.position.y, 0)
+                )
+                # hit!
+                self.player_lives -= 1
+                self.player_alive = False
+                self.player.alive = False
+                self.respawn_timer = 2.0
+
+                if self.player_lives == 0:
+                    self.game_over = True
+                    # you can later stop spawning / show game over UI here
+
+                break
+
+    def handle_shot_asteroid_collisions(self):
+        new_asteroids = []
+        remaining_asteroids = []
+        used_shots = set()
+
+        for asteroid in self.asteroids:
+            hit = False
+
+            for i, shot in enumerate(self.shots):
+                if i in used_shots:
+                    continue
+
+                if self.circles_collide(shot, asteroid):
+                    hit = True
+                    used_shots.add(i)
+                    self.score += asteroid.get_score_value()
+                    self.explosion = Explosion(asteroid.position.x, asteroid.position.y, 0)
+                    new_asteroids.extend(asteroid.split())
+
+            if not hit:
+                remaining_asteroids.append(asteroid)
+
+        remaining_shots = [
+            shot for i, shot in enumerate(self.shots)
+            if i not in used_shots
+        ]
+
+        self.asteroids = remaining_asteroids + new_asteroids
+        self.shots = remaining_shots
+
+    def reset_game(self):
+        self.player_lives = 3
+        self.score = 0
+        self.game_over = False
+
+        # reset player
+        self.player.reset_position(
+            constants.SCREEN_WIDTH / 2,
+            constants.SCREEN_HEIGHT / 2,
+        )
+        self.player.alive = True
+        self.player.visible = True
+        self.player.is_invincible = False
+        self.player.blink_timer = 0.0
+        self.player.shot_cooldown_timer = 0.0
+
+        # clear world
+        self.asteroids.clear()
+        self.shots.clear()
+        self.explosions.clear()
+
+        # timers
+        self.asteroid_spawn_timer = constants.ASTEROID_SPAWN_RATE_SECONDS
+        self.player_alive = True
+        self.is_invincible = False
+        self.respawn_timer = 0.0
+        self.invincibility_timer = 0.0
