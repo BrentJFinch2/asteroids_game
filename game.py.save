@@ -2,13 +2,10 @@ import pygame
 import constants
 import random
 import sys
-import math
 from player import Player
 from asteroid import Asteroid
 from shot import Shot
 from explosion import Explosion
-from powerup import Powerup
-from lasershot import LaserShot
 
 class Game:
     def __init__(self):
@@ -24,27 +21,11 @@ class Game:
         self.asteroids = []
         self.shots = []
         self.explosions = []
-        self.powerups = []
 
         self.clock = pygame.time.Clock()
         self.running = True
 
         self.asteroid_spawn_timer = constants.ASTEROID_SPAWN_RATE_SECONDS
-
-        self.powerup_spawn_timer = 0
-        self.powerup_spawn_interval = 15.0
-
-        self.has_shield = False
-        self.has_speed_boost = False
-        self.has_triple_shot = False
-        self.has_laser_shot = False
-
-        self.shield_timer = 0
-        self.speed_boost_timer = 0
-        self.triple_shot_timer = 0
-        self.laser_shot_timer = 0
-
-        self.powerup_duration = 10.0
 
         self.player_lives = 3
         self.score = 0
@@ -55,7 +36,6 @@ class Game:
         self.is_invincible = False
         self.respawn_timer = 0.0
         self.invincibility_timer = 0.0
-        self.respawn_delay = 3.0
 
         pygame.font.init()
         self.font = pygame.font.SysFont(None, 32)
@@ -75,40 +55,9 @@ class Game:
             self.explosions = [e for e in self.explosions if e.alive]
             return
 
-        if not self.player_alive:
-            self.respawn_timer += dt
-            for explosion in self.explosions:
-                explosion.update(dt)
-            self.explosions = [e for e in self.explosions if e.alive]
-
-            if self.respawn_timer >= self.respawn_delay:
-            # reset player
-                self.player.reset_position(
-                    constants.SCREEN_WIDTH / 2,
-                    constants.SCREEN_HEIGHT / 2,
-                )
-                self.player.rotation = 0
-                self.player.direction = pygame.Vector2(0, 1)
-
-                self.player_alive = True
-                self.player.alive = True
-
-                self.is_invincible = True
-                self.player.is_invincible = True
-                self.invincibility_timer = 2.0
-
-                self.player.visible = True
-                self.player.blink_timer = 0.0
-                self.respawn_timer = 0.0
-
-            return
-
-        shot = self.player.update(dt, triple_shot=self.has_triple_shot, laser_shot=self.has_laser_shot)
+        shot = self.player.update(dt)
         if shot is not None:
-            if isinstance(shot, list):
-                self.shots.extend(shot)
-            else:
-                self.shots.append(shot)
+            self.shots.append(shot)
 
         self.asteroid_spawn_timer -= dt
         if self.asteroid_spawn_timer <= 0:
@@ -121,8 +70,6 @@ class Game:
             shot.update(dt)
         for explosion in self.explosions:
             explosion.update(dt)
-        for powerup in self.powerups:
-            powerup.update(dt)
 
         self.shots = [
             shot for shot in self.shots
@@ -138,15 +85,24 @@ class Game:
 
         self.explosions = [e for e in self.explosions if e.alive]
 
-        self.powerups = [
-            powerup for powerup in self.powerups
-            if powerup.position.y <= constants.SCREEN_HEIGHT
-        ]
+        # --- respawn handling ---
+        if not self.player_alive:
+            self.respawn_timer -= dt
+            if self.respawn_timer <= 0:
+            # reset player
+                self.player.reset_position(
+                    constants.SCREEN_WIDTH / 2,
+                    constants.SCREEN_HEIGHT / 2,
+                )
+                self.player_alive = True
+                self.player.alive = True
 
-        self.powerup_spawn_timer += dt
-        if self.powerup_spawn_timer >= self.powerup_spawn_interval:
-            self.spawn_powerup()
-            self.powerup_spawn_timer = 0
+                self.is_invincible = True
+                self.player.is_invincible = True
+                self.invincibility_timer = 4.0
+
+                self.player.visible = True
+                self.player.blink_timer = 0.0
 
         # --- invincibility blink ---
         if self.is_invincible:
@@ -164,35 +120,8 @@ class Game:
         else:
             self.player.visible = True
 
-        # Countdown power-up timers
-        if self.has_shield:
-            self.shield_timer -= dt
-            if self.shield_timer <= 0:
-                self.has_shield = False
-
-        if self.has_speed_boost:
-            self.speed_boost_timer -= dt
-            if self.speed_boost_timer <= 0:
-                self.has_speed_boost = False
-
-        if self.has_triple_shot:
-            self.triple_shot_timer -= dt
-            if self.triple_shot_timer <= 0:
-                self.has_triple_shot = False
-
-        if self.has_laser_shot:
-            self.laser_shot_timer -= dt
-            if self.laser_shot_timer <= 0:
-                self.has_laser_shot = False
-
-        if self.has_speed_boost:
-            self.player.speed = constants.PLAYER_SPEED * 2
-        else:
-            self.player.speed = constants.PLAYER_SPEED
-
         self.handle_shot_asteroid_collisions()
         self.handle_player_asteroid_collisions()
-        self.handle_powerup_collisions()
 
     def draw(self):
         self.screen.fill("black")
@@ -204,8 +133,6 @@ class Game:
             shot.draw(self.screen)
         for explosion in self.explosions:
             explosion.draw(self.screen)
-        for powerup in self.powerups:
-            powerup.draw(self.screen)
 
         # --- HUD ---
         lives_surf = self.font.render(f"Lives: {self.player_lives}", True, "white")
@@ -220,8 +147,6 @@ class Game:
                 constants.SCREEN_HEIGHT // 2,
             ))
             self.screen.blit(text_surf, rect)
-
-        self.draw_powerup_indicators(self.screen)
 
         pygame.display.flip()
 
@@ -251,12 +176,13 @@ class Game:
         radius = constants.ASTEROID_MAX_RADIUS
         asteroid = Asteroid(x, y, radius)
 
-        angle = random.uniform(0, 2 * math.pi)
-        speed = random.uniform(50, 150)
-        asteroid.velocity = pygame.Vector2(
-            math.cos(angle) * speed,
-            math.sin(angle) * speed
+        center = pygame.Vector2(
+            constants.SCREEN_WIDTH /2,
+            constants.SCREEN_HEIGHT /2,
         )
+        direction = (center - asteroid.position).normalize()
+        speed = random.uniform(50, 150)
+        asteroid.velocity = direction * speed
 
         self.asteroids.append(asteroid)
 
@@ -274,13 +200,6 @@ class Game:
                 if self.is_invincible or self.player.is_invincible:
                     continue
 
-                if self.has_shield:
-                    self.has_shield = False
-                    self.shield_timer = 0
-                    asteroid.split()
-                    self.asteroids.remove(asteroid)
-                    break
-
                 self.explosions.append(
                     Explosion(self.player.position.x, self.player.position.y, 0)
                 )
@@ -288,7 +207,7 @@ class Game:
                 self.player_lives -= 1
                 self.player_alive = False
                 self.player.alive = False
-                self.respawn_timer = 0.0
+                self.respawn_timer = 2.0
 
                 if self.player_lives == 0:
                     self.game_over = True
@@ -310,10 +229,7 @@ class Game:
 
                 if self.circles_collide(shot, asteroid):
                     hit = True
-
-                    if not isinstance(shot, LaserShot):
-                        used_shots.add(i)
-
+                    used_shots.add(i)
                     self.score += asteroid.get_score_value()
                     self.explosion = Explosion(asteroid.position.x, asteroid.position.y, 0)
                     new_asteroids.extend(asteroid.split())
@@ -328,13 +244,6 @@ class Game:
 
         self.asteroids = remaining_asteroids + new_asteroids
         self.shots = remaining_shots
-
-    def handle_powerup_collisions(self):
-        for powerup in self.powerups:
-            if self.circles_collide(self.player, powerup):
-                self.apply_powerup(powerup.powerup_type)
-                self.powerups.remove(powerup)
-                break
 
     def reset_game(self):
         self.player_lives = 3
@@ -363,52 +272,3 @@ class Game:
         self.is_invincible = False
         self.respawn_timer = 0.0
         self.invincibility_timer = 0.0
-
-    def spawn_powerup(self):
-        x = random.uniform(50, constants.SCREEN_WIDTH - 50)
-        y = 0
-
-        powerup_types = ["shield", "speed", "triple_shot", "laser_shot"]
-        powerup_type = random.choice(powerup_types)
-
-        powerup = Powerup(x, y, powerup_type)
-        self.powerups.append(powerup)
-
-    def apply_powerup(self, power_type):
-        if power_type == "shield":
-            self.has_shield = True
-            self.shield_timer = self.powerup_duration
-        elif power_type == "speed":
-            self.has_speed_boost = True
-            self.speed_boost_timer = self.powerup_duration
-        elif power_type == "triple_shot":
-            self.has_triple_shot = True
-            self.triple_shot_timer = self.powerup_duration
-        elif power_type == "laser_shot":
-            self.has_laser_shot = True
-            self.laser_shot_timer = self.powerup_duration
-
-    def draw_powerup_indicators(self, screen):
-        font = pygame.font.Font(None, 24)  # Small font for indicators
-        y_offset = 10
-        x_position = constants.SCREEN_WIDTH - 200
-    
-        if self.has_shield:
-            text = font.render(f"SHIELD: {self.shield_timer:.1f}s", True, "cyan")
-            screen.blit(text, (x_position, y_offset))
-            y_offset += 30
-    
-        if self.has_speed_boost:
-            text = font.render(f"SPEED: {self.speed_boost_timer:.1f}s", True, "yellow")
-            screen.blit(text, (x_position, y_offset))
-            y_offset += 30
-    
-        if self.has_triple_shot:
-            text = font.render(f"TRIPLE: {self.triple_shot_timer:.1f}s", True, "magenta")
-            screen.blit(text, (x_position, y_offset))
-            y_offset += 30
-    
-        if self.has_laser_shot:
-            text = font.render(f"LASER: {self.laser_shot_timer:.1f}s", True, "blue")
-            screen.blit(text, (x_position, y_offset))
-            y_offset += 30

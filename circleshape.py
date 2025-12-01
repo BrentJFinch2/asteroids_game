@@ -29,7 +29,7 @@ class CircleShape(pygame.sprite.Sprite):
         if self.position.x < 0:
             self.position.x = SCREEN_WIDTH
         elif self.position.x > SCREEN_WIDTH:
-            selfposition.x = 0
+            self.position.x = 0
 
         if self.position.y < 0:
             self.position.y = SCREEN_HEIGHT
